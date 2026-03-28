@@ -1,4 +1,4 @@
-.PHONY: install install-dev data train train-debug eval profile-vram test lint format clean
+.PHONY: install install-dev download prepare data train eval baselines profile-vram publish test lint format clean
 
 install:
 	uv sync
@@ -7,28 +7,35 @@ install-dev:
 	uv sync --extra dev
 	uv run pre-commit install
 
-data:
+# Data pipeline — run `make download` then `make prepare`, or `make data` for both
+download:
 	uv run python scripts/download_data.py
+
+prepare:
 	uv run python scripts/prepare_dataset.py
 
+data: download prepare
+
+# Training
 train:
 	uv run accelerate launch --num_processes 2 scripts/run_training.py
 
-train-debug:
-	uv run python scripts/run_training.py \
-		training.epochs=1 \
-		model.max_seq_len=4096 \
-		data.train_path=./data/processed/train_small.jsonl
-
+# Evaluation
 eval:
 	uv run python scripts/run_eval.py
 
 baselines:
 	uv run python scripts/run_baselines.py
 
+# Profiling
 profile-vram:
 	uv run python scripts/profile_vram.py
 
+# Publishing
+publish:
+	uv run python scripts/publish_model.py
+
+# Development
 test:
 	uv run pytest tests/ -v
 

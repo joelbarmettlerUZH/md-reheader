@@ -46,6 +46,10 @@ correctly-structured markdown documents, so predicting `## Methods` after
 The heading text also carries signal — "Introduction" is typically H1/H2, while
 "2.1.3 Implementation Details" implies deep nesting.
 
+The prompt format is minimal: the user message is just the corrupted document
+(no redundant heading list or verbose instructions). The model identifies the
+headings from the document itself.
+
 ### Model Choice: Qwen3-0.6B (text-only)
 
 **Important:** Qwen3.5-0.8B is a vision-language model (VLM) with a vision encoder that
@@ -98,16 +102,17 @@ md-reheader/
 ├── src/
 │   └── md_reheader/
 │       ├── __init__.py
+│       ├── models.py            # Pydantic models (Heading, TrainingExample, EvalResult, etc.)
 │       ├── data/
 │       │   ├── __init__.py
-│       │   ├── extract.py       # Heading extraction from markdown
-│       │   ├── filter.py        # Quality filters
+│       │   ├── extract.py       # Heading extraction via markdown-it-py parser
+│       │   ├── filter.py        # Quality filters (cheap + token-count)
 │       │   ├── corrupt.py       # Corruption strategies
 │       │   ├── format.py        # ChatML formatting
 │       │   └── batching.py      # Length-bucketed sampler & collation
 │       ├── training/
 │       │   ├── __init__.py
-│       │   └── train.py         # Training entrypoint
+│       │   └── train.py         # Training utilities
 │       ├── eval/
 │       │   ├── __init__.py
 │       │   ├── metrics.py       # All metric functions
@@ -120,7 +125,7 @@ md-reheader/
 │
 ├── scripts/
 │   ├── download_data.py         # Fetch from HuggingFace datasets
-│   ├── prepare_dataset.py       # Corrupt, format, split, save processed JSONL
+│   ├── prepare_dataset.py       # Re-extract, corrupt, format, split, save processed JSONL
 │   ├── profile_vram.py          # Measure actual VRAM at each sequence length
 │   ├── run_training.py          # Launch training with config
 │   ├── run_eval.py              # Run evaluation suite
@@ -137,6 +142,8 @@ md-reheader/
 │   ├── test_corrupt.py
 │   ├── test_metrics.py
 │   ├── test_format.py
+│   ├── test_filter.py
+│   ├── test_prepare.py
 │   └── test_batching.py
 │
 └── docs/
@@ -150,8 +157,8 @@ md-reheader/
 ## Phase 1: Project Bootstrap (DONE)
 
 Completed. Python 3.13, uv, all dependencies at latest versions (torch 2.11,
-transformers 5.4, etc.). Hydra configs, pre-commit, ruff, 51 tests passing,
-VRAM profiled, git initialized.
+transformers 5.4, etc.). Hydra configs, pre-commit, ruff, 80 tests passing,
+VRAM profiled, git initialized. Pydantic models for all structured types.
 
 ---
 
@@ -167,8 +174,8 @@ corrupts + formats them. This lets you change corruption strategy without re-dow
 - Loaded via raw parquet files (`datasets>=4.0` dropped loading script support)
 - Filtered by `.md`/`.markdown` file extension on the `path` column
 - Has `repo_name` for splitting by repo (prevents data leakage)
-- Stratified sampling: 70% priority paths (`docs/`, `wiki/`, `guide/`), 30% READMEs
-- Second pass for long docs (25k+ chars) from remaining shards to boost 8k-32k bucket
+- Bucket-targeted download: fills per-length-bucket targets (< 4k, 4k-8k, 8k-16k, 16k-32k)
+  in a single pass to ensure sufficient representation at all document lengths
 
 **Supplement: `euirim/goodwiki`** (curated Wikipedia)
 - 44.8k high-quality Wikipedia articles in GitHub-flavored Markdown
@@ -183,9 +190,12 @@ corrupts + formats them. This lets you change corruption strategy without re-dow
 ### Pipeline
 
 1. **Download** (`scripts/download_data.py`): streams from HuggingFace, applies cheap
-   char-length + heading count filters, saves raw JSONL with metadata
-2. **Prepare** (`scripts/prepare_dataset.py`): token-count filter, split by repo/title
-   (prevents leakage), corrupt headings (mixed strategy), format as ChatML, save JSONL
+   char-length + heading count filters, saves raw JSONL with metadata. Headings extracted
+   via `markdown-it-py` (CommonMark-compliant parser that correctly skips code blocks).
+2. **Prepare** (`scripts/prepare_dataset.py`): re-extracts headings from raw content
+   (decoupled from download extraction), applies token-count filter, splits by repo/title
+   (prevents leakage), corrupts headings (mixed strategy), formats as ChatML, saves JSONL.
+   User message is just the corrupted document (no redundant heading list).
 
 ### Dataset Stats (Actual)
 
@@ -195,8 +205,8 @@ corrupts + formats them. This lets you change corruption strategy without re-dow
 | val   | ~7k     | ~18M              |
 | test  | ~7k     | ~18M              |
 
-Sources: ~100k github-code (70k priority + 30k READMEs) + ~20k long github-code
-(25k+ chars) + ~45k goodwiki. Token filter drops <1%.
+Sources: ~105k github-code (bucket-targeted across length ranges) + ~45k goodwiki.
+Token filter drops <1%.
 
 ### Dataset Versioning
 
@@ -204,7 +214,7 @@ Push processed dataset to HuggingFace Hub for reproducibility:
 
 ```python
 ds = DatasetDict({"train": train, "validation": val, "test": test})
-ds.push_to_hub("your-username/markdown-heading-levels", private=False)
+ds.push_to_hub("joelbarmettlerUZH/md-reheader-dataset", private=False)
 ```
 
 ---
