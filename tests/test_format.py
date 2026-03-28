@@ -1,5 +1,4 @@
 from md_reheader.data.format import (
-    format_headings_list,
     format_headings_output,
     format_training_example,
     parse_headings_output,
@@ -8,20 +7,6 @@ from md_reheader.data.format import (
 from md_reheader.models import Heading
 
 H = Heading
-
-
-class TestFormatHeadingsList:
-    def test_basic(self):
-        headings = [
-            H(text="Intro", level=1), H(text="Methods", level=2), H(text="Results", level=2),
-        ]
-        result = format_headings_list(headings)
-        assert "1. Intro" in result
-        assert "2. Methods" in result
-        assert "3. Results" in result
-
-    def test_empty(self):
-        assert format_headings_list([]) == ""
 
 
 class TestFormatHeadingsOutput:
@@ -107,16 +92,14 @@ class TestFormatTrainingExample:
         assert result.messages[2].role == "assistant"
         assert result.messages[2].content == "# Flat\n## Also flat"
 
-    def test_assistant_output_is_markdown_headings(self):
+    def test_user_message_is_just_the_document(self):
+        doc = "# Flat heading\nSome content\n# Another flat"
         result = format_training_example(
-            corrupted_md="# A\n# B\n# C",
-            headings=[H(text="A", level=1), H(text="B", level=1), H(text="C", level=1)],
-            true_levels=[1, 2, 3],
+            corrupted_md=doc,
+            headings=[H(text="Flat heading", level=1), H(text="Another flat", level=1)],
+            true_levels=[1, 2],
         )
-        lines = result.messages[2].content.splitlines()
-        assert lines[0] == "# A"
-        assert lines[1] == "## B"
-        assert lines[2] == "### C"
+        assert result.messages[1].content == doc
 
     def test_roundtrip(self):
         headings = [

@@ -35,6 +35,21 @@ class TestExtractHeadings:
         assert extract_headings("") == []
 
     def test_mixed_content(self):
-        md = "Some intro text\n# Title\nParagraph here\n## Sub\nMore text\nNot a heading"
+        md = "Some intro text\n\n# Title\n\nParagraph here\n\n## Sub\n\nMore text"
         result = extract_headings(md)
         assert result == [H(text="Title", level=1), H(text="Sub", level=2)]
+
+    def test_skips_code_blocks(self):
+        md = "# Real heading\n\n```bash\n# this is a comment\npip install foo\n```\n\n## Also real"
+        result = extract_headings(md)
+        assert result == [H(text="Real heading", level=1), H(text="Also real", level=2)]
+
+    def test_skips_nested_code_blocks(self):
+        md = "# Before\n\n```python\n# comment 1\n# comment 2\n```\n\n# After"
+        result = extract_headings(md)
+        assert result == [H(text="Before", level=1), H(text="After", level=1)]
+
+    def test_code_block_with_language_tag(self):
+        md = "# Title\n\n```javascript\n// code\n# not a heading\n```\n\n## Section"
+        result = extract_headings(md)
+        assert result == [H(text="Title", level=1), H(text="Section", level=2)]

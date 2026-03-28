@@ -1,8 +1,5 @@
-from md_reheader.data.extract import extract_headings
 from md_reheader.data.format import (
     SYSTEM_PROMPT,
-    USER_TEMPLATE,
-    format_headings_list,
     parse_headings_output,
 )
 from md_reheader.models import Heading
@@ -14,18 +11,9 @@ def predict_heading_levels(
     tokenizer,
     max_new_tokens: int = 512,
 ) -> list[Heading]:
-    headings = extract_headings(md_text)
-    if not headings:
-        return []
-
-    user_content = USER_TEMPLATE.format(
-        document=md_text,
-        headings_list=format_headings_list(headings),
-    )
-
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
+        {"role": "user", "content": md_text},
     ]
 
     input_text = tokenizer.apply_chat_template(
