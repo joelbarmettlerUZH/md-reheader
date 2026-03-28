@@ -1,4 +1,4 @@
-.PHONY: install install-dev download prepare data train eval baselines profile-vram publish test lint format clean
+.PHONY: install install-dev install-axolotl download prepare data train train-1gpu eval baselines profile-vram publish test lint format clean
 
 install:
 	uv sync
@@ -7,7 +7,11 @@ install-dev:
 	uv sync --extra dev
 	uv run pre-commit install
 
-# Data pipeline — run `make download` then `make prepare`, or `make data` for both
+install-axolotl:
+	pip install -U packaging setuptools wheel ninja
+	pip install --no-build-isolation "axolotl[flash-attn]" cut-cross-entropy
+
+# Data pipeline
 download:
 	uv run python scripts/download_data.py
 
@@ -16,9 +20,12 @@ prepare:
 
 data: download prepare
 
-# Training
+# Training with Axolotl
 train:
-	uv run accelerate launch --num_processes 2 scripts/run_training.py
+	axolotl train configs/training/axolotl_2gpu.yaml
+
+train-1gpu:
+	axolotl train configs/training/axolotl_1gpu.yaml
 
 # Evaluation
 eval:

@@ -1,0 +1,55 @@
+base_model: Qwen/Qwen3-0.6B
+
+chat_template: qwen3
+strict: false
+
+datasets:
+  - path: ./data/processed/train.jsonl
+    type: chat_template
+    roles_to_train:
+      - assistant
+
+val_set_size: 0
+output_dir: ./checkpoints
+dataset_prepared_path: ./data/axolotl_prepared
+
+# Capped at 8192 — single 4090 OOMs above this
+sequence_len: 8192
+sample_packing: true
+eval_sample_packing: true
+pad_to_sequence_len: true
+
+load_in_8bit: false
+load_in_4bit: false
+
+bf16: auto
+tf32: true
+
+micro_batch_size: 1
+gradient_accumulation_steps: 16
+
+num_epochs: 3
+optimizer: adamw_torch_fused
+learning_rate: 2e-5
+lr_scheduler: cosine
+warmup_steps: 200
+weight_decay: 0.01
+
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+flash_attention: true
+
+logging_steps: 10
+evals_per_epoch: 4
+saves_per_epoch: 2
+save_total_limit: 3
+
+wandb_project: md-reheader
+wandb_name:
+wandb_entity:
+
+plugins:
+  - axolotl.integrations.cut_cross_entropy.CutCrossEntropyPlugin
+
+seed: 42
