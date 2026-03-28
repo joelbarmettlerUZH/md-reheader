@@ -8,9 +8,9 @@ from pathlib import Path
 from datasets import Dataset, DatasetDict
 
 from md_reheader.data.corrupt import corrupt_document
+from md_reheader.data.extract import extract_headings
 from md_reheader.data.filter import compute_token_count, passes_token_filter
 from md_reheader.data.format import format_training_example
-from md_reheader.models import Heading
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +79,9 @@ def process_split(
     processed: list[dict] = []
     for i, doc in enumerate(docs):
         content = doc["content"]
-        raw_headings = doc["headings"]
-        headings = [Heading(text=h["text"], level=h["level"]) for h in raw_headings]
+        # Re-extract headings from content using the markdown-it-py parser
+        # rather than trusting the pre-extracted headings in the raw JSONL
+        headings = extract_headings(content)
         true_levels = [h.level for h in headings]
 
         doc_seed_str = f"{seed}-{split_name}-{i}-{_split_key(doc)}"
