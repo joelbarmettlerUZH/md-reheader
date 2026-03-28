@@ -13,10 +13,31 @@ logger = logging.getLogger(__name__)
 
 PRIORITY_PATTERNS = ["docs/", "doc/", "wiki/", "guide/", "manual/", "tutorial/"]
 
+DEFAULT_BUCKET_TARGETS: dict[str, int] = {
+    "< 4k": 50_000,
+    "4k-8k": 30_000,
+    "8k-16k": 15_000,
+    "16k-32k": 10_000,
+}
+
+BUCKET_CHAR_RANGES: dict[str, tuple[int, int]] = {
+    "< 4k": (0, 16_000),
+    "4k-8k": (16_000, 32_000),
+    "8k-16k": (32_000, 64_000),
+    "16k-32k": (64_000, 150_000),
+}
+
 
 def _is_priority_path(path: str) -> bool:
     path_lower = path.lower()
     return any(p in path_lower for p in PRIORITY_PATTERNS)
+
+
+def _char_bucket(char_len: int) -> str | None:
+    for bucket, (lo, hi) in BUCKET_CHAR_RANGES.items():
+        if lo <= char_len < hi:
+            return bucket
+    return None
 
 
 def _serialize_headings(headings: list[Heading]) -> list[dict]:
@@ -29,15 +50,12 @@ def _write_record(f: IO, record: dict) -> None:
 
 def download_github_code(
     output_path: Path,
-    target_count: int = 100_000,
-    priority_ratio: float = 0.7,
+    bucket_targets: dict[str, int] | None = None,
 ) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    targets = bucket_targets or DEFAULT_BUCKET_TARGETS
+    counts: dict[str, int] = {b: 0 for b in targets}
 
-    max_readmes = int(target_count * (1 - priority_ratio))
-    max_priority = target_count - max_readmes
-
-    # Legacy loading script no longer supported in datasets>=4.0; load parquets directly
     ds = load_dataset(
         "parquet",
         data_files="hf://datasets/codeparrot/github-code/data/train-*.parquet",
@@ -45,23 +63,20 @@ def download_github_code(
         split="train",
     )
 
-    priority_count = 0
-    readme_count = 0
     scanned = 0
-
     with open(output_path, "w") as f:
         for sample in ds:
             path: str = sample["path"]
             if not path.lower().endswith((".md", ".markdown")):
                 continue
 
-            scanned += 1
             content: str = sample["content"]
-            is_priority = _is_priority_path(path)
+            scanned += 1
 
-            if is_priority and priority_count >= max_priority:
-                continue
-            if not is_priority and readme_count >= max_readmes:
+            bucket = _char_bucket(len(content))
+            if bucket is None or counts[bucket] >= targets[bucket]:
+                if all(counts[b] >= targets[b] for b in targets):
+                    break
                 continue
 
             headings = extract_headings(content)
@@ -76,32 +91,21 @@ def download_github_code(
                     "repo": sample["repo_name"],
                     "path": path,
                     "license": sample["license"],
-                    "is_priority_path": is_priority,
+                    "is_priority_path": _is_priority_path(path),
                     "max_level_gap": compute_heading_level_gap(headings),
                 },
             }
             _write_record(f, record)
+            counts[bucket] += 1
 
-            if is_priority:
-                priority_count += 1
-            else:
-                readme_count += 1
-
-            total = priority_count + readme_count
+            total = sum(counts.values())
             if total % 5_000 == 0:
-                logger.info(
-                    f"github-code: {total}/{target_count} "
-                    f"(priority={priority_count}, readme={readme_count}, scanned={scanned})"
-                )
+                bucket_str = ", ".join(f"{b}={counts[b]}/{targets[b]}" for b in targets)
+                logger.info(f"github-code: {total} total ({bucket_str}, scanned={scanned})")
 
-            if total >= target_count:
-                break
-
-    total = priority_count + readme_count
-    logger.info(
-        f"github-code done: {total} docs saved to {output_path} "
-        f"(priority={priority_count}, readme={readme_count}, scanned={scanned})"
-    )
+    total = sum(counts.values())
+    bucket_str = ", ".join(f"{b}={counts[b]}/{targets[b]}" for b in targets)
+    logger.info(f"github-code done: {total} docs ({bucket_str}, scanned={scanned})")
     return total
 
 
@@ -142,75 +146,6 @@ def download_goodwiki(output_path: Path) -> int:
     return count
 
 
-def download_github_code_long(
-    output_path: Path,
-    target_count: int = 20_000,
-    min_char_length: int = 25_000,
-    start_shard: int = 185,
-) -> int:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    total_shards = 1126
-    shard_files = [
-        f"hf://datasets/codeparrot/github-code/data/train-{i:05d}-of-{total_shards:05d}.parquet"
-        for i in range(start_shard, total_shards)
-    ]
-
-    ds = load_dataset(
-        "parquet",
-        data_files=shard_files,
-        streaming=True,
-        split="train",
-    )
-
-    count = 0
-    scanned = 0
-
-    with open(output_path, "w") as f:
-        for sample in ds:
-            path: str = sample["path"]
-            if not path.lower().endswith((".md", ".markdown")):
-                continue
-
-            content: str = sample["content"]
-            scanned += 1
-
-            if len(content) < min_char_length:
-                continue
-
-            headings = extract_headings(content)
-            if not passes_cheap_filters(content, headings):
-                continue
-
-            record = {
-                "content": content,
-                "headings": _serialize_headings(headings),
-                "source": "github_code",
-                "meta": {
-                    "repo": sample["repo_name"],
-                    "path": path,
-                    "license": sample["license"],
-                    "is_priority_path": _is_priority_path(path),
-                    "max_level_gap": compute_heading_level_gap(headings),
-                },
-            }
-            _write_record(f, record)
-            count += 1
-
-            if count % 2_000 == 0:
-                logger.info(
-                    f"github-code-long: {count}/{target_count} (scanned={scanned})"
-                )
-
-            if count >= target_count:
-                break
-
-    logger.info(
-        f"github-code-long done: {count} docs saved to {output_path} (scanned={scanned})"
-    )
-    return count
-
-
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -225,10 +160,7 @@ def main() -> None:
     logger.info("=== Downloading goodwiki ===")
     gw_count = download_goodwiki(raw_dir / "goodwiki_raw.jsonl")
 
-    logger.info("=== Downloading github-code long docs ===")
-    gc_long_count = download_github_code_long(raw_dir / "github_code_long_raw.jsonl")
-
-    logger.info(f"=== Total raw docs: {gc_count + gw_count + gc_long_count} ===")
+    logger.info(f"=== Total raw docs: {gc_count + gw_count} ===")
 
 
 if __name__ == "__main__":
