@@ -9,6 +9,12 @@ datasets:
     roles_to_train:
       - assistant
 
+test_datasets:
+  - path: ./data/processed/val.jsonl
+    type: chat_template
+    roles_to_train:
+      - assistant
+
 val_set_size: 0
 output_dir: ./checkpoints
 dataset_prepared_path: ./data/axolotl_prepared
@@ -32,8 +38,9 @@ num_epochs: 3
 optimizer: adamw_torch_fused
 learning_rate: 2e-5
 lr_scheduler: cosine
-warmup_steps: 200
+warmup_steps: 100
 weight_decay: 0.01
+max_grad_norm: 1.0
 
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
@@ -46,7 +53,7 @@ saves_per_epoch: 2
 save_total_limit: 3
 
 wandb_project: md-reheader
-wandb_name:
+wandb_name: baseline-full-ft-8k-1gpu
 wandb_entity:
 
 plugins:

@@ -8,8 +8,7 @@ install-dev:
 	uv run pre-commit install
 
 install-axolotl:
-	pip install -U packaging setuptools wheel ninja
-	pip install --no-build-isolation "axolotl[flash-attn]" cut-cross-entropy
+	uv sync
 
 # Data pipeline
 download:
@@ -22,10 +21,10 @@ data: download prepare
 
 # Training with Axolotl
 train:
-	axolotl train configs/training/axolotl_2gpu.yaml
+	uv run axolotl train configs/training/axolotl_2gpu.yaml
 
 train-1gpu:
-	axolotl train configs/training/axolotl_1gpu.yaml
+	uv run axolotl train configs/training/axolotl_1gpu.yaml
 
 # Evaluation
 eval:
