@@ -1,82 +1,194 @@
-# Heading Level Prediction LLM — Implementation Plan (v4)
+# md-reheader — Implementation Plan (v5)
 
 ## Project Priorities
 
 This is a **learning and showcase project**. The priorities, in order:
 
 1. **Reproducible, well-structured training pipeline** — clean code, config-driven, version-controlled
-2. **Rigorous evaluation** — proper metrics, ablations, error analysis, comparison baselines
-3. **Polished publication** — HuggingFace model card, dataset card, weights, blog post
+2. **Rigorous evaluation** — proper metrics, error analysis, comparison baselines
+3. **Polished publication** — HuggingFace model card, dataset card, weights, PyPI package
 4. **Data collection** — important but not the showcase; keep it simple and sufficient
 
 ---
 
-## Context Window Strategy
+## Code Style
 
-Heading hierarchy is a global document property — a heading's correct level depends on
-its relationship to every other heading in the document. Chunking destroys this signal.
-This project uses the **full context window** of Qwen3-0.6B (40k native, training up to 32k)
-with a mixed-length training strategy that handles documents at their natural lengths.
+- **Pydantic models** with `Annotated[type, Field()]` for all structured data
+- **No file-level docstrings** — the module name and structure should be self-explanatory
+- **Comments explain WHY, not WHAT** — no `# extract headings from document` style comments
+- **Strict typing** — all function signatures fully typed with `Annotated` for parameters
+- **Fail fast** — raise errors early, don't silently return defaults
+- **No unnecessary abstractions** — three similar lines > premature helper function
+- **ruff** for linting and formatting (line-length 99, py312, select E/F/I/N/W/UP)
+- **uv** for dependency management, `pyproject.toml` as single source of truth
 
-### Why Long Context Works for This Task
+---
 
-The model reads a long input but produces a relatively short output (the headings with
-correct `#` prefixes). It doesn't need to generate coherent long-form text — it needs
-to attend over headings and infer structural patterns. The attention patterns are
-regular (heading-to-heading relationships, section length ratios, nesting cues), which
-is easier than arbitrary long-range dependencies that typically degrade small models
-at long context.
+## Task & Model Design
 
-### Output Format: Markdown Headings (not integers)
+### The Problem
 
-The model outputs newline-separated markdown headings with correct `#` prefixes:
-
-```
-# Introduction
-## Background
-## Methods
-### Data Collection
-## Results
-```
-
-This aligns with the model's pretraining distribution — it has seen millions of
-correctly-structured markdown documents, so predicting `## Methods` after
-`# Introduction` leverages existing knowledge. A comma-separated integer format
-(e.g., `1, 2, 2, 3, 2`) would require learning an arbitrary mapping from scratch.
-The heading text also carries signal — "Introduction" is typically H1/H2, while
-"2.1.3 Implementation Details" implies deep nesting.
-
-The prompt format is minimal: the user message is just the corrupted document
-(no redundant heading list or verbose instructions). The model identifies the
-headings from the document itself.
+PDF-to-markdown tools (Marker, Nougat, Docling, MinerU) flatten heading hierarchy — typically
+everything becomes H1 or H2. This destroys document structure. A small fine-tuned model can
+restore correct heading levels by understanding document semantics and structure.
 
 ### Model Choice: Qwen3-0.6B (text-only)
 
-**Important:** Qwen3.5-0.8B is a vision-language model (VLM) with a vision encoder that
-adds significant memory overhead. We use **Qwen/Qwen3-0.6B** instead — a pure text-only
-causal LM with 40k native context window, 28 layers, 0.6B parameters.
+**Important:** Qwen3.5-0.8B is a vision-language model (VLM) — do NOT use it.
+We use **Qwen/Qwen3-0.6B** — a pure text-only causal LM, 40k native context, 0.6B parameters.
 
-### VRAM Profile (Empirically Measured, 2x RTX 4090, 24 GB each)
+### Input/Output Format (V3 — Current)
 
-Single-GPU measurements with BF16 + gradient checkpointing:
+**Input:** Document with all headings flattened to `# ` (level 1), body text stripped
+to first 128 + last 128 tokens per section, truncated to fit 8k tokens.
+
+**Output:** Headings with correct `#` prefixes and text, one per line.
 
 ```
-seq_len    bs    peak VRAM    fits 24GB?
-────────────────────────────────────────
-   512     16    18,276 MB    Y
-  1024      8    18,276 MB    Y
-  2048      1     5,433 MB    Y
-  2048      2     9,713 MB    Y
-  2048      4    18,277 MB    Y
-  4096      1     9,714 MB    Y
-  4096      2    18,278 MB    Y
-  8192      1    18,280 MB    Y
- 16384      1    OOM          N
- 32768      1    OOM          N
+Input (user message):
+# Introduction
+First 128 tokens of body... [...] ...last 128 tokens.
+# Background
+Body text...
+# Methods
+Body text...
+
+Output (assistant message):
+# Introduction
+## Background
+### Methods
 ```
 
-Model weights alone: ~1,137 MB in BF16. Activations scale ~2.1 GB per 1k tokens at bs=1.
-**Single GPU max: seq_len=8192, bs=1.** For 16k-32k, FSDP across 2 GPUs is required.
+The system prompt is: "You are a markdown document structure expert. Given a markdown
+document with incorrect or flattened heading levels, output each heading with its correct
+markdown prefix (# for level 1, ## for level 2, etc.), one per line."
+
+### Why This Format (Lessons from V1 and V2)
+
+**V1** used full documents (no stripping) with random corruption. Loss was dominated by
+heading text reproduction (~98% of output tokens), masking poor level prediction. Trained
+at 32k seq_len with FSDP — slow (days) and the model learned to copy text but defaulted
+to H2 for levels.
+
+**V2** used marker tokens (`<|object_ref_start|>`) and numeric-only output (`1\n2\n3\n`).
+Removing heading text from the output removed too much signal — the model couldn't leverage
+pretraining knowledge about heading semantics ("Introduction" = likely H1). Performance
+dropped across the board.
+
+**V3** (current) takes the best of both: stripped body + flattened `#` headings from V2's
+efficiency gains, but V1's heading-text-in-output to leverage pretraining semantics. The
+`#` heading prefix in the input carries meaning the model already understands from
+pretraining, unlike arbitrary marker tokens.
+
+### Inference: enable_thinking=False
+
+The Qwen3 chat template has an `enable_thinking` flag. During training, assistant messages
+get wrapped in empty `<think>\n\n</think>\n\n` tags. At inference, `enable_thinking=False`
+must be passed to `apply_chat_template` to match the training format. Without this, the
+model enters a repetition loop.
+
+---
+
+## Data
+
+### Sources
+
+**Primary: `codeparrot/github-code`** (Markdown subset)
+- 8.5M markdown files, loaded via raw parquet files
+- Filtered by `.md`/`.markdown` file extension on the `path` column
+- Bucket-targeted download: fills per-length-bucket targets (< 4k, 4k-8k, 8k-16k, 16k-32k)
+- Split by `repo_name` to prevent data leakage
+
+**Supplement: `euirim/goodwiki`** (curated Wikipedia)
+- 44.8k high-quality Wikipedia articles in GitHub-flavored Markdown
+- Article title prepended as `# {title}`
+
+### Pipeline
+
+1. **Download** (`scripts/download_data.py`): streams from HuggingFace, applies cheap
+   filters, saves raw JSONL. Headings extracted via `markdown-it-py`.
+2. **Prepare** (`scripts/prepare_dataset.py --version 3`): re-extracts headings, applies
+   token-count filter, splits by repo/title, oversamples deep docs (depth 4: 2x, 5: 4x,
+   6: 8x), strips body text, flattens headings, truncates to 7500 tokens, formats as
+   ChatML, saves JSONL.
+
+### Dataset Stats
+
+| Split | Examples | Notes |
+|-------|---------|-------|
+| train | ~197k | After oversampling (131k original) |
+| val | ~7k | |
+| test | ~7k | |
+
+Sources: ~105k github-code + ~45k goodwiki. Oversampling increases depth 4+ from 30% to 53%.
+
+---
+
+## Training with Axolotl
+
+### Why Axolotl
+
+No custom training code. Sample packing, gradient accumulation, DDP, gradient checkpointing,
+BF16, W&B — all via YAML config. YAML-driven reproducibility.
+
+### Current Config (V3)
+
+- `sequence_len: 8192` — stripped docs fit within this
+- `micro_batch_size: 12`, `gradient_accumulation_steps: 1` (effective batch 24)
+- `learning_rate: 5e-5` (higher than default — small output fraction needs stronger signal)
+- `num_epochs: 2` (but epoch 1 checkpoint is optimal — epoch 2 overfits)
+- DDP across 2x RTX 4090 (no FSDP — 0.6B model fits on single GPU)
+- `chat_template: qwen3`, `roles_to_train: assistant`
+- `cut_cross_entropy` plugin for memory efficiency
+
+### Training Lessons
+
+- **FSDP is overkill for 0.6B** — DDP is faster, less communication overhead
+- **The model overfits in epoch 2** — use the epoch-1 checkpoint (best eval loss)
+- **Assistant tokens are ~2% of total** — the loss signal is sparse, so higher LR helps
+- **Eval loss ≠ task performance** — V1 had lower eval loss (0.035) than V3 (0.028) but
+  V3 has better heading-level accuracy because V1's loss was dominated by text reproduction
+
+---
+
+## Evaluation Results (V3, Best Checkpoint)
+
+### Overall
+
+| Metric | Naive Flat | Heuristic | **V3 Model** |
+|--------|-----------|-----------|-------------|
+| Exact match | 0.000 | 0.145 | **0.561** |
+| Per-heading accuracy | 0.131 | 0.491 | **0.806** |
+| Hierarchy preservation | 0.613 | 0.686 | **0.910** |
+| MAE | 1.382 | 0.624 | **0.220** |
+| Level count match | 1.000 | 1.000 | **0.987** |
+
+### Per-Level Accuracy
+
+| Level | V1 | V3 |
+|-------|-----|-----|
+| H1 | 0.72 | **0.77** |
+| H2 | 0.83 | **0.85** |
+| H3 | 0.73 | **0.78** |
+| H4 | 0.56 | **0.68** |
+| H5 | 0.42 | **0.45** |
+| H6 | 0.34 | **0.50** |
+
+### Error Analysis
+
+- **56.1% exact match** (every heading correct)
+- **1.3% count mismatch** (vs 8.9% in V1)
+- **1.1% inverted hierarchy**
+- Most errors are off-by-one at deep levels — reasonable disagreements
+
+### Known Failure Modes
+
+1. **Consistent off-by-one at depth** — model gets relative structure right (86% hierarchy)
+   but absolute level shifted by 1. Common with ambiguous nesting.
+2. **Cascade from bad start** — if the document starts with irregular structure (e.g.
+   Jekyll frontmatter), the model gets confused and everything shifts.
+3. **Compression of deep subtrees** — H5/H6 get compressed to H3/H4. The model preserves
+   relative structure but underestimates absolute depth.
 
 ---
 
@@ -84,345 +196,96 @@ Model weights alone: ~1,137 MB in BF16. Activations scale ~2.1 GB per 1k tokens 
 
 ```
 md-reheader/
-├── README.md
-├── LICENSE
-├── pyproject.toml               # uv, Python 3.13
+├── pyproject.toml               # uv, Python 3.12, PyPI metadata
 ├── Makefile
+├── CLAUDE.md
 │
 ├── configs/
-│   ├── data/
-│   │   ├── github_code.yaml     # codeparrot/github-code config
-│   │   └── goodwiki.yaml        # euirim/goodwiki config
-│   ├── training/
-│   │   ├── full_ft_2gpu.yaml
-│   │   └── full_ft_1gpu.yaml
-│   └── eval/
-│       └── default.yaml
+│   └── training/
+│       ├── axolotl_v3_2gpu.yaml # Current best config
+│       ├── axolotl_2gpu.yaml    # V1 config (historical)
+│       ├── axolotl_1gpu.yaml    # V1 single-GPU
+│       ├── axolotl_v2_2gpu.yaml # V2 config (historical)
+│       └── axolotl_v2_1gpu.yaml # V2 single-GPU
 │
 ├── src/
 │   └── md_reheader/
 │       ├── __init__.py
-│       ├── models.py            # Pydantic models (Heading, TrainingExample, EvalResult, etc.)
+│       ├── models.py            # Pydantic models
 │       ├── data/
 │       │   ├── __init__.py
-│       │   ├── extract.py       # Heading extraction via markdown-it-py parser
-│       │   ├── filter.py        # Quality filters (cheap + token-count)
-│       │   ├── corrupt.py       # Corruption strategies
-│       │   ├── format.py        # ChatML formatting
-│       │   └── batching.py      # Length-bucketed sampler & collation
-│       ├── training/
-│       │   ├── __init__.py
-│       │   └── train.py         # Training utilities
+│       │   ├── extract.py       # Heading extraction via markdown-it-py
+│       │   ├── filter.py        # Quality filters
+│       │   ├── corrupt.py       # V1 corruption strategies (historical)
+│       │   ├── format.py        # ChatML formatting (v1/v2/v3)
+│       │   ├── strip.py         # Body stripping + heading flattening (v3)
+│       │   └── apply.py         # Apply predicted levels to markdown
 │       ├── eval/
 │       │   ├── __init__.py
-│       │   ├── metrics.py       # All metric functions
-│       │   ├── evaluate.py      # Evaluation loop
-│       │   ├── baselines.py     # Heuristic & zero-shot baselines
-│       │   └── analysis.py      # Error analysis & visualization
+│       │   ├── metrics.py       # Metric functions
+│       │   ├── evaluate.py      # Evaluation with slicing
+│       │   ├── baselines.py     # Heuristic baselines
+│       │   └── analysis.py      # Error categorization
 │       └── inference/
 │           ├── __init__.py
 │           └── predict.py       # Inference pipeline
 │
 ├── scripts/
-│   ├── download_data.py         # Fetch from HuggingFace datasets
-│   ├── prepare_dataset.py       # Re-extract, corrupt, format, split, save processed JSONL
-│   ├── profile_vram.py          # Measure actual VRAM at each sequence length
-│   ├── run_training.py          # Launch training with config
-│   ├── run_eval.py              # Run evaluation suite
-│   ├── publish_model.py         # Push to HuggingFace Hub
-│   └── run_baselines.py         # Run all baseline comparisons
+│   ├── download_data.py
+│   ├── prepare_dataset.py
+│   ├── run_eval.py
+│   ├── run_baselines.py
+│   ├── profile_vram.py
+│   └── publish_model.py
 │
-├── notebooks/
-│   ├── 01_data_exploration.ipynb
-│   ├── 02_training_analysis.ipynb
-│   └── 03_error_analysis.ipynb
-│
-├── tests/
-│   ├── test_extract.py
-│   ├── test_corrupt.py
-│   ├── test_metrics.py
-│   ├── test_format.py
-│   ├── test_filter.py
-│   ├── test_prepare.py
-│   └── test_batching.py
-│
-└── docs/
-    ├── model_card.md
-    ├── dataset_card.md
-    └── vram_profile.md          # Empirical VRAM measurements
+└── tests/
+    ├── test_extract.py
+    ├── test_corrupt.py
+    ├── test_metrics.py
+    ├── test_format.py
+    ├── test_filter.py
+    ├── test_prepare.py
+    ├── test_strip.py
+    ├── test_apply.py
+    └── test_batching.py
 ```
 
 ---
 
-## Phase 1: Project Bootstrap (DONE)
+## Phases
 
-Completed. Python 3.13, uv, all dependencies at latest versions (torch 2.11,
-transformers 5.4, etc.). Hydra configs, pre-commit, ruff, 80 tests passing,
-VRAM profiled, git initialized. Pydantic models for all structured types.
+### Phase 1: Project Bootstrap (DONE)
+Python 3.12, uv, Axolotl + flash-attn + cut-cross-entropy as managed deps.
 
----
+### Phase 2: Data Collection (DONE)
+Two-step pipeline: download raw → prepare processed. Bucket-targeted download for
+length diversity. 150k raw docs, 197k after oversampling.
 
-## Phase 2: Data Collection (DONE)
+### Phase 3: Training (DONE)
+Three iterations (V1→V2→V3). V3 is the best: flattened input, stripped body, heading
+text in output, oversampled deep docs, higher LR. 2 epochs, epoch-1 checkpoint optimal.
 
-Two-step pipeline: `download_data.py` saves clean originals, `prepare_dataset.py`
-corrupts + formats them. This lets you change corruption strategy without re-downloading.
+### Phase 4: Evaluation (DONE)
+Metrics, baselines, per-level accuracy, error analysis. V3 achieves 56% exact match,
+81% per-heading accuracy, 91% hierarchy preservation.
 
-### Data Sources
+### Phase 5: Publishing (IN PROGRESS)
+- [ ] Clean up code for publication
+- [ ] PyPI package with inference pipeline (`reheader_document`)
+- [ ] HuggingFace model card + model upload
+- [ ] HuggingFace dataset card + dataset upload
 
-**Primary: `codeparrot/github-code`** (Markdown subset)
-- 8.5M markdown files, 23 GB, no authentication required
-- Loaded via raw parquet files (`datasets>=4.0` dropped loading script support)
-- Filtered by `.md`/`.markdown` file extension on the `path` column
-- Has `repo_name` for splitting by repo (prevents data leakage)
-- Bucket-targeted download: fills per-length-bucket targets (< 4k, 4k-8k, 8k-16k, 16k-32k)
-  in a single pass to ensure sufficient representation at all document lengths
-
-**Supplement: `euirim/goodwiki`** (curated Wikipedia)
-- 44.8k high-quality Wikipedia articles in GitHub-flavored Markdown
-- Article title prepended as `# {title}` — Wikipedia's title IS the H1
-- Different domain from GitHub code docs — improves generalization
-
-**Dropped alternatives:**
-- `bigcode/the-stack-v2-dedup` — content not in parquet rows, requires S3 download + auth
-- `bigcode/starcoderdata` — gated, no advantage over github-code
-- `marcodsn/arxiv-markdown` — generated by docling which flattens headings, no ground truth
-
-### Pipeline
-
-1. **Download** (`scripts/download_data.py`): streams from HuggingFace, applies cheap
-   char-length + heading count filters, saves raw JSONL with metadata. Headings extracted
-   via `markdown-it-py` (CommonMark-compliant parser that correctly skips code blocks).
-2. **Prepare** (`scripts/prepare_dataset.py`): re-extracts headings from raw content
-   (decoupled from download extraction), applies token-count filter, splits by repo/title
-   (prevents leakage), corrupts headings (mixed strategy), formats as ChatML, saves JSONL.
-   User message is just the corrupted document (no redundant heading list).
-
-### Dataset Stats (Actual)
-
-| Split | Examples | Tokens (content) |
-|-------|---------|-------------------|
-| train | ~130k   | ~322M             |
-| val   | ~7k     | ~18M              |
-| test  | ~7k     | ~18M              |
-
-Sources: ~105k github-code (bucket-targeted across length ranges) + ~45k goodwiki.
-Token filter drops <1%.
-
-### Dataset Versioning
-
-Push processed dataset to HuggingFace Hub for reproducibility:
-
-```python
-ds = DatasetDict({"train": train, "validation": val, "test": test})
-ds.push_to_hub("joelbarmettlerUZH/md-reheader-dataset", private=False)
-```
-
----
-
-## Phase 3: Training with Axolotl
-
-### Why Axolotl
-
-Evaluated Axolotl, TRL SFTTrainer, torchtune, LLaMA-Factory, Unsloth, Nanotron, and
-TorchTitan. Decision factors:
-
-- **No custom training code.** Dynamic padding, sample packing, gradient accumulation,
-  FSDP, gradient checkpointing, BF16, and W&B are all commodity features. We should not
-  implement any of them. Axolotl provides all of these via YAML config.
-- **Sample packing replaces length-bucketed batching.** Axolotl's multipack bin-packing
-  concatenates short sequences into full-length training sequences, achieving the same
-  efficiency as our custom `LengthBucketSampler` without any custom code.
-- **YAML-driven reproducibility.** One config file fully defines a training run. Easy to
-  version-control, diff, and reproduce. Ablations are trivial CLI overrides.
-- **FSDP + sequence parallelism.** For 16k-32k sequences that OOM on a single GPU,
-  Axolotl supports FSDP1/FSDP2 across 2 GPUs and Ring FlashAttention for sequence
-  parallelism.
-- **Qwen3 support.** Explicit support since Oct 2025, documented in Qwen's own training
-  guide.
-
-Dropped alternatives:
-- TRL SFTTrainer — strong, but Python-configured (not YAML-first), no length bucketing
-- torchtune — open Qwen3 EOS masking issue, smaller community
-- Unsloth — multi-GPU is a known weakness, dealbreaker for 16k-32k sequences
-- LLaMA-Factory — slowing development, documentation issues
-- Nanotron, TorchTitan — pretraining only, no SFT support
-
-### 3.1 — Data Format for Axolotl
-
-Axolotl expects conversations in `sharegpt` format. Our processed JSONL already has
-the right structure (`messages` with `role`/`content`). We configure Axolotl to read
-this directly:
-
-```yaml
-datasets:
-  - path: ./data/processed/train.jsonl
-    type: sharegpt
-    conversation: chatml
-```
-
-### 3.2 — Base Training Config
-
-```yaml
-# configs/training/axolotl_base.yaml
-base_model: Qwen/Qwen3-0.6B
-model_type: AutoModelForCausalLM
-
-load_in_8bit: false
-load_in_4bit: false
-bf16: auto
-
-datasets:
-  - path: ./data/processed/train.jsonl
-    type: sharegpt
-    conversation: chatml
-
-val_set_size: 0  # we have a separate val set
-dataset_prepared_path: ./data/axolotl_prepared
-
-sequence_len: 32768
-sample_packing: true
-pad_to_sequence_len: true
-
-gradient_accumulation_steps: 16
-micro_batch_size: 1
-num_epochs: 3
-learning_rate: 2e-5
-lr_scheduler: cosine
-warmup_steps: 200
-weight_decay: 0.01
-optimizer: adamw_torch
-
-gradient_checkpointing: true
-
-logging_steps: 10
-eval_steps: 500
-save_steps: 1000
-save_total_limit: 3
-output_dir: ./checkpoints
-
-wandb_project: md-reheader
-wandb_run_name: null
-
-seed: 42
-```
-
-### 3.3 — Multi-GPU Config (FSDP)
-
-For 2x RTX 4090 with FSDP to handle 16k-32k sequences:
-
-```yaml
-# configs/training/axolotl_2gpu.yaml (extends base)
-fsdp:
-  - full_shard
-  - auto_wrap
-fsdp_config:
-  fsdp_limit_all_gathers: true
-  fsdp_sync_module_states: true
-  fsdp_offload_params: false
-  fsdp_state_dict_type: FULL_STATE_DICT
-  fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
-```
-
-Launch: `accelerate launch --num_processes 2 -m axolotl.cli.train configs/training/axolotl_2gpu.yaml`
-
-### 3.4 — Experiment Tracking
-
-Every run tracked in W&B. Axolotl logs loss, learning rate, grad norm, throughput,
-and GPU memory automatically. Tag runs for easy filtering:
-
-```yaml
-wandb_project: md-reheader
-wandb_run_name: full-ft-32k-lr2e5-ep3
-```
-
-### 3.5 — Ablation Study Plan
-
-Ablations are CLI overrides on the base config — no code changes needed:
-
-| Experiment ID   | Variable            | Values to Test                | CLI Override Example                     |
-|-----------------|---------------------|-------------------------------|------------------------------------------|
-| `abl-lr`        | Learning rate       | 1e-5, 2e-5, 5e-5             | `--learning_rate 5e-5`                   |
-| `abl-epoch`     | Epochs              | 1, 3, 5                      | `--num_epochs 5`                         |
-| `abl-seqlen`    | Max sequence length | 4096, 8192, 16384, 32768     | `--sequence_len 4096`                    |
-| `abl-corrupt`   | Corruption mix      | flat-only, mixed, random-only | Re-run prepare_dataset.py, point to data |
-| `abl-data`      | Dataset size        | 20k, 50k, 80k, 130k          | Subsample train.jsonl                    |
-| `abl-lora`      | LoRA vs full FT     | LoRA r=32, full FT            | Add `adapter: lora` + `lora_r: 32`      |
-
-The `abl-seqlen` ablation validates the full-context architecture decision.
-The `abl-data` ablation determines if we need to scale beyond 80k examples.
-
-Run each with 3 seeds (`--seed 42/123/456`) for variance estimates.
-
----
-
-## Phase 4: Evaluation (The Most Important Phase)
-
-### 4.1 — Metric Suite
-
-Already implemented in `src/md_reheader/eval/metrics.py`:
-- Exact match
-- Per-heading accuracy
-- Hierarchy preservation (pairwise directional accuracy)
-- Mean absolute error
-- Level count match
-
-### 4.2 — Baselines
-
-- **Naive flat:** All level 1. What the corrupted input already has.
-- **Heuristic rules:** First heading = L1, numbered headings infer depth from dots,
-  common top-level patterns = L1. Already implemented.
-- **Zero-shot Qwen3-0.6B:** Same prompt, no fine-tuning.
-- **Zero-shot larger model (Qwen3-1.7B or API model):** Sets the ceiling.
-
-### 4.3 — Evaluation Slicing
-
-Document length is the **primary evaluation axis**. Also slice by source (github_code
-vs goodwiki), heading count, max depth, and corruption type.
-
-The **accuracy vs document length chart** comparing fine-tuned model, 4k-training
-ablation, zero-shot larger model, and heuristic baseline is the centerpiece.
-
-### 4.4 — Error Analysis
-
-Already implemented in `src/md_reheader/eval/analysis.py`:
-- Count mismatch, off-by-one (constant offset), flat prediction
-- Inverted hierarchy, "lost in middle" detection
-- Confusion matrix, calibration plot, positional accuracy plot
-
----
-
-## Phase 5: Publishing
-
-### 5.1 — HuggingFace Model Card
-
-Include: model description, training details, evaluation tables (overall + by length +
-by source), baseline comparison, ablation results, usage code, limitations.
-
-### 5.2 — Blog Post Structure
-
-1. The problem — visual before/after of flat vs hierarchical headings
-2. Why a small fine-tuned model — cost, latency, beating larger models on narrow task
-3. Why full context matters — ablation chart
-4. Data strategy — two sources, corruption approach, length distribution
-5. Training details — W&B dashboard, loss curve, VRAM profile
-6. Results — comparison table, accuracy-vs-length chart
-7. Error analysis — confusion matrix, "lost in middle", example failures
-8. Try it yourself — HuggingFace model, Gradio demo, code snippet
-
----
-
-## Phase 6: Stretch Goals
-
+### Phase 6: Stretch Goals
 - HuggingFace Space with Gradio demo
 - GGUF export for local inference
-- Benchmarking as post-processor on Marker, Nougat, and other PDF-to-MD tools
+- Benchmarking as post-processor for PDF-to-markdown tools
 
 ---
 
-## Key Principles Throughout
+## Key Principles
 
-- **Every experiment is tracked in W&B.** No "quick test" runs that go unlogged.
-- **Every decision is documented.** Why Qwen3-0.6B not Qwen3.5? Why github-code not Stack v2? Put these in the README or a decisions log.
-- **Reproducibility is sacred.** Pin all dependencies, log seeds, commit configs.
-- **Tests protect your pipeline.** Corruption logic will change multiple times. Tests catch regressions.
-- **The write-up tells a story.** "PDF parsers lose heading structure. I fixed it with a tiny model that runs anywhere — and proved that full-document context is essential."
+- **Every experiment is tracked in W&B.**
+- **Reproducibility is sacred.** Pin dependencies, log seeds, commit configs.
+- **Tests protect the pipeline.** 107 tests covering extraction, stripping, formatting, metrics.
+- **The write-up tells a story.** "PDF parsers lose heading structure. I fixed it with a tiny
+  model that runs anywhere."

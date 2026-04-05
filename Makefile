@@ -1,4 +1,4 @@
-.PHONY: install install-dev install-axolotl download prepare data train train-1gpu eval baselines profile-vram publish test lint format clean
+.PHONY: install install-dev download prepare data train eval baselines profile-vram publish test lint format clean
 
 install:
 	uv sync
@@ -7,8 +7,8 @@ install-dev:
 	uv sync --extra dev
 	uv run pre-commit install
 
-install-axolotl:
-	uv sync
+install-train:
+	uv sync --extra train
 
 # Data pipeline
 download:
@@ -19,12 +19,9 @@ prepare:
 
 data: download prepare
 
-# Training with Axolotl
+# Training
 train:
-	uv run axolotl train configs/training/axolotl_2gpu.yaml
-
-train-1gpu:
-	uv run axolotl train configs/training/axolotl_1gpu.yaml
+	uv run axolotl train configs/training/axolotl_v3_2gpu.yaml
 
 # Evaluation
 eval:

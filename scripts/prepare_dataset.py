@@ -1,4 +1,4 @@
-import hashlib
+import argparse
 import json
 import logging
 import random
@@ -7,12 +7,14 @@ from pathlib import Path
 
 from datasets import Dataset, DatasetDict
 
-from md_reheader.data.corrupt import corrupt_document
 from md_reheader.data.extract import extract_headings
 from md_reheader.data.filter import compute_token_count, passes_token_filter
 from md_reheader.data.format import format_training_example
+from md_reheader.data.strip import count_headings, strip_document, truncate_stripped
 
 logger = logging.getLogger(__name__)
+
+DEPTH_MULTIPLIERS = {4: 2, 5: 4, 6: 8}
 
 
 def load_raw_jsonl(raw_dir: Path) -> list[dict]:
@@ -71,37 +73,62 @@ def split_by_source_key(
     return train, val, test
 
 
+def oversample_deep_docs(
+    docs: list[dict],
+    multipliers: dict[int, int] | None = None,
+) -> list[dict]:
+    multipliers = multipliers or DEPTH_MULTIPLIERS
+    result: list[dict] = []
+    for doc in docs:
+        headings = extract_headings(doc["content"])
+        if not headings:
+            result.append(doc)
+            continue
+        max_depth = max(h.level for h in headings)
+        mult = 1
+        for depth, m in sorted(multipliers.items()):
+            if max_depth >= depth:
+                mult = m
+        result.extend([doc] * mult)
+    return result
+
+
 def process_split(
     docs: list[dict],
     split_name: str,
     seed: int = 42,
 ) -> list[dict]:
     processed: list[dict] = []
-    for i, doc in enumerate(docs):
+    for _i, doc in enumerate(docs):
         content = doc["content"]
-        # Re-extract headings from content using the markdown-it-py parser
-        # rather than trusting the pre-extracted headings in the raw JSONL
         headings = extract_headings(content)
+        if not headings:
+            continue
         true_levels = [h.level for h in headings]
 
-        doc_seed_str = f"{seed}-{split_name}-{i}-{_split_key(doc)}"
-        doc_seed = int(hashlib.md5(doc_seed_str.encode()).hexdigest()[:8], 16)
+        stripped = strip_document(content, headings)
+        stripped = truncate_stripped(stripped, max_tokens=7500)
 
-        corrupted = corrupt_document(content, strategy="mixed", seed=doc_seed)
+        visible_count = count_headings(stripped)
+        true_levels = true_levels[:visible_count]
+        headings = headings[:visible_count]
+        if not true_levels:
+            continue
+
+        token_count = compute_token_count(stripped)
 
         example = format_training_example(
-            corrupted_md=corrupted,
+            stripped_md=stripped,
             headings=headings,
             true_levels=true_levels,
         )
 
-        token_count = compute_token_count(content)
         example.metadata = {
             "source": doc["source"],
             "token_count": token_count,
             "heading_count": len(headings),
-            "max_depth": max(h.level for h in headings),
-            "min_depth": min(h.level for h in headings),
+            "max_depth": max(true_levels),
+            "min_depth": min(true_levels),
             "max_level_gap": doc.get("meta", {}).get("max_level_gap", 0),
             **{k: v for k, v in doc.get("meta", {}).items() if k != "max_level_gap"},
         }
@@ -140,6 +167,10 @@ def prepare_dataset(
 
     train, val, test = split_by_source_key(docs, seed=seed)
 
+    logger.info(f"Oversampling deep docs in train split ({len(train)} before)...")
+    train = oversample_deep_docs(train)
+    logger.info(f"Train after oversampling: {len(train)}")
+
     for split_name, split_docs in [("train", train), ("val", val), ("test", test)]:
         logger.info(f"Processing {split_name} split ({len(split_docs)} docs)...")
         processed = process_split(split_docs, split_name, seed=seed)
@@ -160,7 +191,12 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
-    prepare_dataset()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", type=str, default="data/processed")
+    args = parser.parse_args()
+
+    prepare_dataset(output_dir=Path(args.output_dir))
 
 
 if __name__ == "__main__":

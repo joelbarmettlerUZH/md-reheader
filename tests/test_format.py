@@ -82,7 +82,7 @@ class TestParseLevelsFromOutput:
 class TestFormatTrainingExample:
     def test_structure(self):
         result = format_training_example(
-            corrupted_md="# Flat\n# Also flat",
+            stripped_md="# Flat\n# Also flat",
             headings=[H(text="Flat", level=1), H(text="Also flat", level=1)],
             true_levels=[1, 2],
         )
@@ -92,10 +92,10 @@ class TestFormatTrainingExample:
         assert result.messages[2].role == "assistant"
         assert result.messages[2].content == "# Flat\n## Also flat"
 
-    def test_user_message_is_just_the_document(self):
+    def test_user_message_is_the_stripped_document(self):
         doc = "# Flat heading\nSome content\n# Another flat"
         result = format_training_example(
-            corrupted_md=doc,
+            stripped_md=doc,
             headings=[H(text="Flat heading", level=1), H(text="Another flat", level=1)],
             true_levels=[1, 2],
         )
@@ -110,7 +110,7 @@ class TestFormatTrainingExample:
         ]
         true_levels = [1, 2, 3, 2]
         result = format_training_example(
-            corrupted_md="# x\n# x\n# x\n# x",
+            stripped_md="# x\n# x\n# x\n# x",
             headings=headings,
             true_levels=true_levels,
         )
