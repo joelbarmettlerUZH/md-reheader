@@ -1,4 +1,4 @@
-.PHONY: install install-dev download prepare data train eval baselines profile-vram publish test lint format clean
+.PHONY: install install-dev download prepare data train eval baselines profile-vram publish publish-model publish-dataset test lint format clean
 
 install:
 	uv sync
@@ -35,8 +35,13 @@ profile-vram:
 	uv run python scripts/profile_vram.py
 
 # Publishing
-publish:
-	uv run python scripts/publish_model.py
+publish-model:
+	uv run python scripts/publish_model.py model
+
+publish-dataset:
+	uv run python scripts/publish_model.py dataset
+
+publish: publish-model publish-dataset
 
 # Development
 test:
