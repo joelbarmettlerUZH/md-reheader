@@ -15,7 +15,7 @@ task_categories:
 
 # md-reheader Dataset
 
-Training data for [md-reheader](https://huggingface.co/joelbarmettlerUZH/md-reheader), a model that restores heading hierarchy in markdown documents.
+Training data for [md-reheader](https://huggingface.co/joelbarmettler/md-reheader), a model that restores heading hierarchy in markdown documents.
 
 ## Dataset Description
 

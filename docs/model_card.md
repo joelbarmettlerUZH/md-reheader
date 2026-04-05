@@ -10,7 +10,7 @@ tags:
   - fine-tuned
 base_model: Qwen/Qwen3-0.6B
 datasets:
-  - joelbarmettlerUZH/md-reheader-dataset
+  - joelbarmettler/md-reheader-dataset
 metrics:
   - accuracy
   - exact_match
@@ -99,7 +99,7 @@ pip install md-reheader
 ```python
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 flat_markdown = open("document.md").read()
 fixed = reheader_document(flat_markdown, model, tokenizer)
@@ -113,9 +113,9 @@ The package handles preprocessing (heading flattening, body stripping) and postp
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-tokenizer = AutoTokenizer.from_pretrained("joelbarmettlerUZH/md-reheader")
+tokenizer = AutoTokenizer.from_pretrained("joelbarmettler/md-reheader")
 model = AutoModelForCausalLM.from_pretrained(
-    "joelbarmettlerUZH/md-reheader",
+    "joelbarmettler/md-reheader",
     dtype=torch.bfloat16,
     device_map="auto",
 )

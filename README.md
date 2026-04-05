@@ -46,7 +46,7 @@ Requires Python 3.12+ and PyTorch. Works on both CPU and GPU.
 from pathlib import Path
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 markdown = Path("document.md").read_text()
 fixed = reheader_document(markdown, model, tokenizer)
@@ -58,7 +58,7 @@ Path("document_fixed.md").write_text(fixed)
 ```python
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 flat_markdown = """\
 # Introduction
@@ -77,7 +77,7 @@ fixed = reheader_document(flat_markdown, model, tokenizer)
 print(fixed)
 # # Introduction
 # ## Background
-# ### Related Work
+# ## Related Work
 # ## Methods
 # ### Data Collection
 # ### Preprocessing
@@ -93,7 +93,7 @@ print(fixed)
 # After running MinerU or Docling on a PDF:
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 # MinerU outputs markdown with flat headings
 mineru_output = open("output/paper.md").read()
@@ -109,10 +109,10 @@ with open("output/paper_fixed.md", "w") as f:
 
 ```python
 # GPU (recommended for batch processing)
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader", device="cuda")
+model, tokenizer = load_model("joelbarmettler/md-reheader", device="cuda")
 
 # CPU (no GPU required, slower)
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader", device="cpu")
+model, tokenizer = load_model("joelbarmettler/md-reheader", device="cpu")
 ```
 
 ## Speed
