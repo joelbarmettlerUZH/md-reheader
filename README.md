@@ -207,6 +207,10 @@ Code and model weights: [Apache 2.0](LICENSE)
 
 Training data includes Wikipedia content ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)) and GitHub repositories (various open-source licenses).
 
+## Author
+
+Built by [Joel Barmettler](https://joelbarmettler.xyz/).
+
 ## Citation
 
 ```bibtex

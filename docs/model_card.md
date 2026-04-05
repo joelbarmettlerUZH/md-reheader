@@ -204,6 +204,10 @@ The model then outputs each heading with the correct `#` prefix and heading text
 - **Long documents:** Documents exceeding ~8k tokens after preprocessing are truncated.
 - **English-centric:** Trained primarily on English documents.
 
+## Author
+
+Built by [Joel Barmettler](https://joelbarmettler.xyz/).
+
 ## Citation
 
 ```bibtex
