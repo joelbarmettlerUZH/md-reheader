@@ -18,12 +18,12 @@ venv/
 *.swo
 
 # Data
-data/
+/data/
 *.jsonl
 !configs/**/*.yaml
 
 # Checkpoints
-checkpoints/
+/checkpoints/
 *.pt
 *.bin
 *.safetensors
