@@ -24,6 +24,70 @@ library_name: transformers
 
 PDF-to-markdown tools like [MinerU](https://github.com/opendatalab/MinerU), [Docling](https://github.com/DS4SD/docling), and [Marker](https://github.com/VikParuchuri/marker) often flatten heading structure — everything becomes `#` or `##`. This model predicts the correct heading levels (H1–H6) from document context and semantics.
 
+### Before (flat output from a PDF parser)
+
+```markdown
+# API Reference
+
+# Authentication
+
+All API requests require a Bearer token in the Authorization header.
+
+# Endpoints
+
+# Users
+
+# List Users
+
+Returns a paginated list of all users in the organization.
+
+# Create User
+
+Creates a new user account. Requires admin privileges.
+
+# Projects
+
+# List Projects
+
+Returns all projects the authenticated user has access to.
+
+# Error Handling
+
+All errors follow the standard format with a status code and message field.
+```
+
+### After (restored by md-reheader)
+
+```markdown
+# API Reference
+
+## Authentication
+
+All API requests require a Bearer token in the Authorization header.
+
+## Endpoints
+
+### Users
+
+#### List Users
+
+Returns a paginated list of all users in the organization.
+
+#### Create User
+
+Creates a new user account. Requires admin privileges.
+
+### Projects
+
+#### List Projects
+
+Returns all projects the authenticated user has access to.
+
+## Error Handling
+
+All errors follow the standard format with a status code and message field.
+```
+
 ## Usage
 
 ### With the md-reheader package (recommended)
