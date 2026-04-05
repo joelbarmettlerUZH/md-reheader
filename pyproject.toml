@@ -24,18 +24,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-train = [
-    "datasets>=4.5",
-    "wandb>=0.25",
-    "evaluate>=0.4.1",
-    "huggingface-hub>=1.1",
-    "numpy>=1.24",
-    "accelerate==1.13.0",
-    "axolotl==0.15.0",
-    "cut-cross-entropy[transformers] @ git+https://github.com/axolotl-ai-cloud/ml-cross-entropy.git@e8ad129",
-    "flash-attn>=2.8",
-    "torchvision>=0.23.0",
-]
 dev = [
     "pytest>=8.0",
     "ruff>=0.11",

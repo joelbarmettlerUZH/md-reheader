@@ -7,9 +7,6 @@ install-dev:
 	uv sync --extra dev
 	uv run pre-commit install
 
-install-train:
-	uv sync --extra train
-
 # Data pipeline
 download:
 	uv run python scripts/download_data.py
