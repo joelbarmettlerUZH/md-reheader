@@ -40,13 +40,36 @@ Requires Python 3.12+ and PyTorch. Works on both CPU and GPU.
 
 ## Quick Start
 
+### Command line
+
+```bash
+# Auto-detects GPU if available, otherwise CPU
+rehead --input flat.md --output fixed.md
+
+# Force a device
+rehead -i flat.md -o fixed.md --gpu
+rehead -i flat.md -o fixed.md --cpu
+
+# No --output: prints to stdout, so you can pipe
+rehead -i flat.md | tee fixed.md
+rehead -i flat.md > fixed.md
+
+# Overwrite an existing output
+rehead -i flat.md -o fixed.md --force
+
+# Point at a local checkpoint or a different HF repo
+rehead -i flat.md -o fixed.md --model ./checkpoints/epoch-1
+```
+
+Nested output directories are created automatically. Run `rehead --help` for the full flag list.
+
 ### From a file
 
 ```python
 from pathlib import Path
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 markdown = Path("document.md").read_text()
 fixed = reheader_document(markdown, model, tokenizer)
@@ -58,7 +81,7 @@ Path("document_fixed.md").write_text(fixed)
 ```python
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 flat_markdown = """\
 # Introduction
@@ -93,7 +116,7 @@ print(fixed)
 # After running MinerU or Docling on a PDF:
 from md_reheader.inference.predict import load_model, reheader_document
 
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader")
+model, tokenizer = load_model("joelbarmettler/md-reheader")
 
 # MinerU outputs markdown with flat headings
 mineru_output = open("output/paper.md").read()
@@ -109,10 +132,10 @@ with open("output/paper_fixed.md", "w") as f:
 
 ```python
 # GPU (recommended for batch processing)
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader", device="cuda")
+model, tokenizer = load_model("joelbarmettler/md-reheader", device="cuda")
 
 # CPU (no GPU required, slower)
-model, tokenizer = load_model("joelbarmettlerUZH/md-reheader", device="cpu")
+model, tokenizer = load_model("joelbarmettler/md-reheader", device="cpu")
 ```
 
 ## Speed

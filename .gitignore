@@ -46,3 +46,5 @@ Thumbs.db
 
 # uv
 .python-version
+
+/example/**/*.pdf
