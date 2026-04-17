@@ -216,8 +216,7 @@ md-reheader/
 │       │   ├── __init__.py
 │       │   ├── extract.py       # Heading extraction via markdown-it-py
 │       │   ├── filter.py        # Quality filters
-│       │   ├── corrupt.py       # V1 corruption strategies (historical)
-│       │   ├── format.py        # ChatML formatting (v1/v2/v3)
+│       │   ├── format.py        # ChatML formatting
 │       │   ├── strip.py         # Body stripping + heading flattening (v3)
 │       │   └── apply.py         # Apply predicted levels to markdown
 │       ├── eval/
@@ -240,7 +239,6 @@ md-reheader/
 │
 └── tests/
     ├── test_extract.py
-    ├── test_corrupt.py
     ├── test_metrics.py
     ├── test_format.py
     ├── test_filter.py

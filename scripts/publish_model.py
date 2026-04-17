@@ -1,8 +1,31 @@
 import argparse
+import json
 import shutil
 from pathlib import Path
 
 from huggingface_hub import HfApi
+
+
+def _patch_for_transformers_v4_compat(staging_dir: Path) -> None:
+    """Add legacy `rope_theta` alongside `rope_parameters` and drop the
+    list-typed `extra_special_tokens` so vLLM (transformers 4.x) can load
+    the model. transformers 5.x still reads the legacy fields fine."""
+    cfg_path = staging_dir / "config.json"
+    if cfg_path.exists():
+        cfg = json.loads(cfg_path.read_text())
+        rp = cfg.get("rope_parameters")
+        if rp and "rope_theta" not in cfg:
+            cfg["rope_theta"] = rp.get("rope_theta", 1000000)
+            cfg_path.write_text(json.dumps(cfg, indent=2))
+            print("  patched config.json: added top-level rope_theta")
+
+    tc_path = staging_dir / "tokenizer_config.json"
+    if tc_path.exists():
+        tc = json.loads(tc_path.read_text())
+        if isinstance(tc.get("extra_special_tokens"), list):
+            tc.pop("extra_special_tokens")
+            tc_path.write_text(json.dumps(tc, indent=2))
+            print("  patched tokenizer_config.json: stripped extra_special_tokens list")
 
 
 def publish_model(
@@ -15,7 +38,6 @@ def publish_model(
         shutil.rmtree(staging_dir)
     staging_dir.mkdir()
 
-    # Copy only the files needed for inference
     for filename in [
         "config.json",
         "generation_config.json",
@@ -28,7 +50,8 @@ def publish_model(
         if src.exists():
             shutil.copy2(src, staging_dir / filename)
 
-    # Copy model card as README.md
+    _patch_for_transformers_v4_compat(staging_dir)
+
     shutil.copy2(model_card_path, staging_dir / "README.md")
 
     api = HfApi()
@@ -89,7 +112,7 @@ def main() -> None:
         "--data-dir", type=str, default="./data/processed_v3",
     )
     dataset_parser.add_argument(
-        "--repo", type=str, default="joelbarmettlerUZH/md-reheader-dataset",
+        "--repo", type=str, default="joelbarmettler/md-reheader-dataset",
     )
 
     args = parser.parse_args()

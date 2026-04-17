@@ -1,8 +1,36 @@
-# md-reheader
+<div align="center">
 
-**Restore heading hierarchy in markdown documents** using a fine-tuned 0.6B parameter LLM.
+<h1 align="center" style="font-size: 32px">md-reheader</h1>
 
-PDF-to-markdown tools like [MinerU](https://github.com/opendatalab/MinerU), [Docling](https://github.com/DS4SD/docling), and [Marker](https://github.com/VikParuchuri/marker) often flatten heading structure. You get this:
+<p align="center"><strong>Restore heading hierarchy in markdown documents with a fine-tuned 0.6B LLM.</strong></p>
+
+<p align="center">
+  <a href="https://pypi.org/project/md-reheader/"><img src="https://img.shields.io/pypi/v/md-reheader?color=blue&label=PyPI" alt="PyPI"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12%2B-blue" alt="Python 3.12+"></a>
+  <a href="https://www.apache.org/licenses/LICENSE-2.0"><img src="https://img.shields.io/badge/license-Apache%202.0-green" alt="Apache 2.0"></a>
+  <a href="https://huggingface.co/joelbarmettler/md-reheader"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20HuggingFace-Model-yellow" alt="HuggingFace Model"></a>
+  <a href="https://huggingface.co/datasets/joelbarmettler/md-reheader-dataset"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Dataset-Explore-yellow" alt="HuggingFace Dataset"></a>
+  <a href="https://github.com/joelbarmettlerUZH/md-reheader"><img src="https://img.shields.io/github/stars/joelbarmettlerUZH/md-reheader?style=social" alt="GitHub stars"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Exact%20Match-56%25-brightgreen?style=for-the-badge" alt="Exact Match 56%">
+  <img src="https://img.shields.io/badge/Per--Heading%20Accuracy-81%25-brightgreen?style=for-the-badge" alt="Per-Heading Accuracy 81%">
+  <img src="https://img.shields.io/badge/Hierarchy-91%25-brightgreen?style=for-the-badge" alt="Hierarchy Preservation 91%">
+  <img src="https://img.shields.io/badge/Params-0.6B-blue?style=for-the-badge" alt="0.6B parameters">
+</p>
+
+</div>
+
+---
+
+## The problem
+
+PDF-to-markdown tools like [MinerU](https://github.com/opendatalab/MinerU), [Docling](https://github.com/DS4SD/docling), and [Marker](https://github.com/VikParuchuri/marker) do great text extraction — then collapse your document structure. Every heading becomes `#` or `##`. TOCs break. RAG chunking breaks. Navigation breaks.
+
+**md-reheader** fixes it. A 0.6B-parameter Qwen3 fine-tune reads the document and predicts the correct H1–H6 level for every heading in a single forward pass.
+
+### Before (flat output from a PDF parser)
 
 ```markdown
 # API Reference
@@ -16,7 +44,7 @@ PDF-to-markdown tools like [MinerU](https://github.com/opendatalab/MinerU), [Doc
 # Error Handling
 ```
 
-md-reheader restores the correct hierarchy:
+### After (restored by md-reheader)
 
 ```markdown
 # API Reference
@@ -30,194 +58,216 @@ md-reheader restores the correct hierarchy:
 ## Error Handling
 ```
 
-## Installation
+---
+
+## Quick start
+
+### CLI
 
 ```bash
 pip install md-reheader
+rehead --input flat.md --output fixed.md
 ```
 
-Requires Python 3.12+ and PyTorch. Works on both CPU and GPU.
+Auto-detects CUDA. Use `--cpu` or `--gpu` to override. Omit `--output` to stream to stdout — pipe-friendly for integration with other CLIs.
 
-## Quick Start
-
-### From a file
-
-```python
-from pathlib import Path
-from md_reheader.inference.predict import load_model, reheader_document
-
-model, tokenizer = load_model("joelbarmettler/md-reheader")
-
-markdown = Path("document.md").read_text()
-fixed = reheader_document(markdown, model, tokenizer)
-Path("document_fixed.md").write_text(fixed)
+```bash
+rehead -i flat.md | tee fixed.md               # pipe
+rehead -i flat.md --gpu -o out/fixed.md        # creates nested dirs
+rehead -i flat.md --force -o existing.md       # overwrite
+rehead --help                                   # all flags
 ```
 
-### From a string
+### Python API
 
 ```python
 from md_reheader.inference.predict import load_model, reheader_document
 
 model, tokenizer = load_model("joelbarmettler/md-reheader")
 
-flat_markdown = """\
-# Introduction
-# Background
-# Related Work
-# Methods
-# Data Collection
-# Preprocessing
-# Model Architecture
-# Results
-# Discussion
-# Conclusion
-"""
-
-fixed = reheader_document(flat_markdown, model, tokenizer)
-print(fixed)
-# # Introduction
-# ## Background
-# ## Related Work
-# ## Methods
-# ### Data Collection
-# ### Preprocessing
-# ### Model Architecture
-# ## Results
-# ## Discussion
-# ## Conclusion
+flat = open("document.md").read()
+fixed = reheader_document(flat, model, tokenizer)
 ```
 
-### Post-processing MinerU / Docling output
+The package handles preprocessing (flattening + body stripping) and postprocessing (applying predicted levels back to the original document) automatically.
+
+### Direct `transformers` usage
 
 ```python
-# After running MinerU or Docling on a PDF:
-from md_reheader.inference.predict import load_model, reheader_document
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model, tokenizer = load_model("joelbarmettler/md-reheader")
+tokenizer = AutoTokenizer.from_pretrained("joelbarmettler/md-reheader")
+model = AutoModelForCausalLM.from_pretrained(
+    "joelbarmettler/md-reheader",
+    dtype=torch.bfloat16,
+    device_map="auto",
+)
 
-# MinerU outputs markdown with flat headings
-mineru_output = open("output/paper.md").read()
+messages = [
+    {"role": "system", "content": "You are a markdown document structure expert. Given a markdown document with incorrect or flattened heading levels, output each heading with its correct markdown prefix (# for level 1, ## for level 2, etc.), one per line."},
+    {"role": "user", "content": "# Introduction\n\nSome text...\n\n# Background\n\nMore text...\n\n# Methods"},
+]
 
-# Fix the heading hierarchy
-fixed = reheader_document(mineru_output, model, tokenizer)
+input_text = tokenizer.apply_chat_template(
+    messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
+)
+inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
 
-with open("output/paper_fixed.md", "w") as f:
-    f.write(fixed)
+with torch.no_grad():
+    outputs = model.generate(**inputs, max_new_tokens=4096, do_sample=False)
+
+generated = outputs[0][inputs["input_ids"].shape[1]:]
+print(tokenizer.decode(generated, skip_special_tokens=True))
 ```
 
-### GPU vs CPU
+> **Important:** pass `enable_thinking=False` to `apply_chat_template`. Without it, the model enters a repetition loop because training used the non-thinking chat format.
+
+### Self-host with vLLM
+
+```bash
+pip install vllm
+vllm serve joelbarmettler/md-reheader --dtype bfloat16 --max-model-len 8192
+```
+
+Higher throughput than raw `transformers` and drop-in OpenAI-compatible clients. On <10 GB cards add `--enforce-eager --gpu-memory-utilization 0.70` to skip CUDA-graph allocations.
+
+### Remote inference (any OpenAI-compatible endpoint)
+
+Once a server is running, use md-reheader as a thin client — no local weights needed.
+
+```bash
+rehead -i flat.md -o fixed.md --endpoint http://localhost:8000/v1
+rehead -i flat.md -o fixed.md --endpoint https://api.example.com/v1 --api-key sk-xxx
+# or set MD_REHEADER_API_KEY in the environment
+```
 
 ```python
-# GPU (recommended for batch processing)
-model, tokenizer = load_model("joelbarmettler/md-reheader", device="cuda")
+from md_reheader.inference.remote import reheader_document_remote
 
-# CPU (no GPU required, slower)
-model, tokenizer = load_model("joelbarmettler/md-reheader", device="cpu")
+fixed = reheader_document_remote(
+    open("flat.md").read(),
+    endpoint="http://localhost:8000/v1",
+    model="joelbarmettler/md-reheader",
+)
 ```
 
-## Speed
+Identical output to local inference. Preprocessing (flatten + strip) happens client-side; the server just runs the chat completion with `chat_template_kwargs={"enable_thinking": false}` to match training.
 
-Benchmarked on a single NVIDIA RTX 4090 (BF16) and CPU (float32):
+---
 
-| Document size | GPU (RTX 4090) | CPU |
-|--------------|----------------|-----|
-| < 1k tokens | 0.4s | 5s |
-| 1k-2k tokens | 0.8s | 10s |
-| 2k-4k tokens | 1.4s | ~20s |
-| 4k-8k tokens | 3.4s | ~60s |
+## How it works
 
-The model processes documents up to 8k tokens (after preprocessing). Longer documents are automatically truncated.
+```
+flat markdown  ──►  flatten headings to #  ──►  strip body to 128+128 tokens
+                                                         │
+                                                         ▼
+        restored markdown  ◄──  apply predicted levels  ◄── Qwen3-0.6B (fine-tuned)
+```
+
+1. Extract headings with [markdown-it-py](https://github.com/executablebooks/markdown-it-py) — correctly skips code blocks.
+2. Flatten every heading to `# ` — the model ignores input levels.
+3. Strip each section's body to its first 128 + last 128 tokens — preserves structural cues, kills context bloat.
+4. Qwen3-0.6B predicts the correct `#` prefix per heading.
+5. Levels get mapped back to the original document.
+
+---
 
 ## Evaluation
 
-Evaluated on 7,321 test documents from GitHub markdown files and Wikipedia articles:
+Benchmarked on 7,321 held-out documents from GitHub markdown and Wikipedia.
 
-| Metric | All-H1 baseline | Heuristic | **md-reheader** |
-|--------|-----------|-----------|-----------------|
-| Exact match | 0.0% | 14.5% | **56.1%** |
-| Per-heading accuracy | 13.1% | 49.1% | **80.6%** |
-| Hierarchy preservation | 61.3% | 68.6% | **91.0%** |
-| Mean absolute error | 1.38 | 0.62 | **0.22** |
+| Metric                  | All-H1 baseline | Heuristic | **md-reheader** |
+|-------------------------|:---------------:|:---------:|:---------------:|
+| Exact match             | 0.0%            | 14.5%     | **56.1%**       |
+| Per-heading accuracy    | 13.1%           | 49.1%     | **80.6%**       |
+| Hierarchy preservation  | 61.3%           | 68.6%     | **91.0%**       |
+| Mean absolute error     | 1.38            | 0.62      | **0.22**        |
 
 ### Per-level accuracy
 
-| | H1 | H2 | H3 | H4 | H5 | H6 |
-|---|---|---|---|---|---|---|
-| **Accuracy** | 77% | 85% | 78% | 68% | 45% | 50% |
+|          | H1  | H2  | H3  | H4  | H5  | H6  |
+|----------|:---:|:---:|:---:|:---:|:---:|:---:|
+| Accuracy | 77% | 85% | 78% | 68% | 45% | 50% |
 
-The model is strongest on H1-H3 headings (77-85% accuracy) and still significantly outperforms baselines on deeper levels. Most errors on H4-H6 are off-by-one — the relative structure is preserved even when the absolute level is shifted.
+H1–H3 land in the 77–85% band; H5/H6 drop but still beat baselines. Most deep-level errors are off-by-one — the relative structure survives.
 
 ### By document depth
 
-| Max heading depth | Exact match | Per-heading accuracy | Hierarchy |
-|---|---|---|---|
-| Depth 2 (flat) | 83% | 91% | 95% |
-| Depth 3 | 54% | 82% | 90% |
-| Depth 4 | 32% | 70% | 88% |
-| Depth 5-6 | 33% | 65% | 89% |
+| Max depth | Exact match | Per-heading accuracy | Hierarchy |
+|-----------|:-----------:|:--------------------:|:---------:|
+| Depth 2   | 83%         | 91%                  | 95%       |
+| Depth 3   | 54%         | 82%                  | 90%       |
+| Depth 4   | 32%         | 70%                  | 88%       |
+| Depth 5-6 | 33%         | 65%                  | 89%       |
 
 ### By source
 
-| Source | Exact match | Per-heading accuracy |
-|---|---|---|
-| GitHub markdown | 49.5% | 74.0% |
-| Wikipedia | 71.3% | 95.5% |
+| Source            | Exact match | Per-heading accuracy |
+|-------------------|:-----------:|:--------------------:|
+| GitHub markdown   | 49.5%       | 74.0%                |
+| Wikipedia         | 71.3%       | 95.5%                |
 
-## How It Works
+---
 
-1. **Extract** headings from the document using [markdown-it-py](https://github.com/executablebooks/markdown-it-py) (CommonMark parser, correctly skips code blocks)
-2. **Flatten** all headings to `# ` (level 1) — the model should not trust input heading levels
-3. **Strip** body text to first 128 + last 128 tokens per section — preserves structural cues without bloating context
-4. **Predict** heading levels using the fine-tuned Qwen3-0.6B model
-5. **Apply** predicted levels back to the original document
+## Speed
 
-The model outputs headings with correct `#` prefixes (e.g., `## Methods`, `### Data Collection`), leveraging pretraining knowledge about heading semantics.
+| Document size | RTX 4090 (BF16) | CPU (fp32) |
+|---------------|:---------------:|:----------:|
+| < 1k tokens   | 0.4s            | 5s         |
+| 1k–2k tokens  | 0.8s            | 10s        |
+| 2k–4k tokens  | 1.4s            | ~20s       |
+| 4k–8k tokens  | 3.4s            | ~60s       |
+
+Documents longer than ~8k tokens (after stripping) are truncated from the tail.
+
+---
 
 ## Limitations
 
-- **Deep nesting (H5/H6)**: Accuracy drops to 45-50%. The model preserves relative structure but tends to compress deep hierarchies by 1-2 levels.
-- **Ambiguous structure**: Heading levels are inherently subjective. The model learns common conventions but cannot resolve genuine ambiguity.
-- **Long documents**: Documents exceeding ~8k tokens after stripping are truncated from the end. Headings beyond the cutoff retain their original levels.
+- **Deep nesting (H5/H6)** — accuracy drops to 45–50%. Relative structure is preserved; absolute depth gets compressed by 1–2 levels.
+- **Ambiguous structure** — heading levels are subjective. The model learns common conventions; it can't resolve genuine ambiguity.
+- **Long documents** — >8k tokens (after stripping) get truncated. Headings past the cutoff retain their input levels.
+- **English-centric** — trained primarily on English content.
 
-## Training
+---
 
-The model is a fine-tuned [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) trained on ~197k markdown documents:
-- **codeparrot/github-code**: ~105k markdown files from GitHub repositories
-- **euirim/goodwiki**: ~45k Wikipedia articles
-- Deep documents (depth 4+) oversampled 2-8x to address class imbalance
-
-Trained with [Axolotl](https://github.com/axolotl-ai-cloud/axolotl) on 2x RTX 4090 using DDP, BF16, 8k sequence length with sample packing.
-
-### Reproducing
+## Reproducing training
 
 ```bash
 git clone https://github.com/joelbarmettlerUZH/md-reheader.git
 cd md-reheader
 
 uv sync --extra train    # install training dependencies
-make download             # download raw data (~150k documents)
-make prepare              # strip, flatten, oversample, format
-make train                # train on 2x GPU
-make eval                 # evaluate on test set
+make download            # download raw data (~150k documents)
+make prepare             # strip, flatten, oversample, format
+make train               # train on 2x GPU with Axolotl
+make eval                # evaluate on test set
 ```
+
+The model is a fine-tune of [Qwen/Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B) trained on ~197k markdown documents:
+
+- **codeparrot/github-code** — ~105k markdown files from GitHub repositories
+- **euirim/goodwiki** — ~45k Wikipedia articles
+- Deep documents (depth 4+) oversampled 2–8× for class balance
+
+Trained with [Axolotl](https://github.com/axolotl-ai-cloud/axolotl) on 2× RTX 4090 using DDP, BF16, 8k sequence length with sample packing.
+
+---
 
 ## License
 
-Code and model weights: [Apache 2.0](LICENSE)
+Code and model weights: [Apache 2.0](LICENSE). Training data includes Wikipedia content ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)) and GitHub repositories (various open-source licenses).
 
-Training data includes Wikipedia content ([CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)) and GitHub repositories (various open-source licenses).
-
-## Author
-
-Built by [Joel Barmettler](https://joelbarmettler.xyz/).
+---
 
 ## Citation
 
 ```bibtex
 @software{barmettler2026mdreheader,
   author = {Barmettler, Joel},
-  title = {md-reheader: Restoring Heading Hierarchy in Markdown Documents},
-  year = {2026},
-  url = {https://github.com/joelbarmettlerUZH/md-reheader}
+  title  = {md-reheader: Restoring Heading Hierarchy in Markdown Documents},
+  year   = {2026},
+  url    = {https://github.com/joelbarmettlerUZH/md-reheader}
 }
 ```

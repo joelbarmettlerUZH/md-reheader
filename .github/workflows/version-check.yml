@@ -1,0 +1,43 @@
+name: Version Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Verify version bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # need main's pyproject.toml
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install packaging
+        run: pip install --quiet packaging
+
+      - name: Compare PR version against main
+        run: |
+          python - <<'PY'
+          import subprocess
+          import tomllib
+          from packaging.version import Version
+
+          with open('pyproject.toml', 'rb') as f:
+              pr = Version(tomllib.load(f)['project']['version'])
+
+          main_toml = subprocess.check_output(
+              ['git', 'show', 'origin/main:pyproject.toml']
+          ).decode()
+          main = Version(tomllib.loads(main_toml)['project']['version'])
+
+          if pr <= main:
+              print(f'::error title=Version not bumped::pyproject.toml version {pr} must be strictly greater than main version {main}. Bump it before merging.')
+              raise SystemExit(1)
+
+          print(f'OK: {main} -> {pr}')
+          PY

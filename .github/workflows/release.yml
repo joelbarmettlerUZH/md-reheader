@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  detect-version:
+    name: Detect version change
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      is-new: ${{ steps.v.outputs.is-new }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read pyproject version and check for existing tag
+        id: v
+        run: |
+          version=$(grep -E '^version = ' pyproject.toml | cut -d'"' -f2)
+          echo "version=$version" >> $GITHUB_OUTPUT
+          if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
+            echo "is-new=false" >> $GITHUB_OUTPUT
+            echo "tag v$version already exists — skipping release"
+          else
+            echo "is-new=true" >> $GITHUB_OUTPUT
+            echo "tag v$version is new — will release"
+          fi
+
+  pypi:
+    name: Publish to PyPI
+    needs: detect-version
+    if: needs.detect-version.outputs.is-new == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/md-reheader
+    permissions:
+      id-token: write  # PyPI Trusted Publisher (OIDC)
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v8
+        with:
+          python-version: '3.12'
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  github-release:
+    name: Tag and create GitHub Release
+    needs: [detect-version, pypi]
+    if: needs.detect-version.outputs.is-new == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ needs.detect-version.outputs.version }}" \
+            --title "v${{ needs.detect-version.outputs.version }}" \
+            --generate-notes \
+            --target ${{ github.sha }}
+
+  huggingface:
+    name: Sync HF model and dataset cards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install huggingface_hub
+        run: pip install --quiet huggingface_hub
+
+      - name: Upload cards
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          sha_short = os.environ['GITHUB_SHA'][:7]
+
+          api.upload_file(
+              path_or_fileobj='docs/model_card.md',
+              path_in_repo='README.md',
+              repo_id='joelbarmettler/md-reheader',
+              repo_type='model',
+              commit_message=f'Sync model card from GitHub main ({sha_short})',
+          )
+          api.upload_file(
+              path_or_fileobj='docs/dataset_card.md',
+              path_in_repo='README.md',
+              repo_id='joelbarmettler/md-reheader-dataset',
+              repo_type='dataset',
+              commit_message=f'Sync dataset card from GitHub main ({sha_short})',
+          )
+          PY
