@@ -161,7 +161,7 @@ fixed = reheader_document_remote(
 )
 ```
 
-To self-host with [vLLM](https://github.com/vllm-project/vllm), see the [model card](https://huggingface.co/joelbarmettler/md-reheader#self-host-with-vllm) — the one-time patch fixes transformers 4.x/5.x config compatibility, then `vllm serve` is a one-liner.
+To self-host with [vLLM](https://github.com/vllm-project/vllm): `pip install vllm && vllm serve joelbarmettler/md-reheader --dtype bfloat16 --max-model-len 8192`.
 
 ## Speed
 

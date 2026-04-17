@@ -185,37 +185,11 @@ print(tokenizer.decode(generated, skip_special_tokens=True))
 
 ### Self-host with vLLM
 
-md-reheader exposes the standard OpenAI-compatible chat endpoint when served with [vLLM](https://github.com/vllm-project/vllm) — 2.x faster throughput on a single GPU, and drop-in client compatibility.
-
-**One-time patch** (only needed while vLLM ships transformers 4.x — this repo was saved with transformers 5.x):
-
-```bash
-pip install huggingface_hub
-python - <<PY
-from huggingface_hub import snapshot_download
-import json, shutil
-from pathlib import Path
-local = Path("./md-reheader-vllm")
-snapshot_download("joelbarmettler/md-reheader", local_dir=str(local))
-cfg = json.load(open(local / "config.json"))
-rp = cfg.pop("rope_parameters", None)
-if rp: cfg["rope_theta"] = rp.get("rope_theta", 1000000)
-json.dump(cfg, open(local / "config.json", "w"), indent=2)
-tc = json.load(open(local / "tokenizer_config.json"))
-if isinstance(tc.get("extra_special_tokens"), list):
-    tc.pop("extra_special_tokens")
-    json.dump(tc, open(local / "tokenizer_config.json", "w"), indent=2)
-PY
-```
-
-**Serve:**
+md-reheader exposes the standard OpenAI-compatible chat endpoint when served with [vLLM](https://github.com/vllm-project/vllm) — higher throughput than raw `transformers`, and drop-in client compatibility.
 
 ```bash
 pip install vllm
-vllm serve ./md-reheader-vllm \
-  --served-model-name joelbarmettler/md-reheader \
-  --dtype bfloat16 \
-  --max-model-len 8192
+vllm serve joelbarmettler/md-reheader --dtype bfloat16 --max-model-len 8192
 ```
 
 On <10 GB cards (e.g. RTX 2000/3060), add `--enforce-eager --gpu-memory-utilization 0.70` to skip CUDA-graph allocations that otherwise OOM.
