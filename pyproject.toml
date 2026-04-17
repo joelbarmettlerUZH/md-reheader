@@ -1,6 +1,6 @@
 [project]
 name = "md-reheader"
-version = "0.2.1"
+version = "0.2.2"
 description = "Restore heading hierarchy in markdown documents using a fine-tuned Qwen3-0.6B model"
 requires-python = ">=3.12,<3.13"
 license = "Apache-2.0"

@@ -33,13 +33,6 @@ library_name: transformers
   <a href="https://github.com/joelbarmettlerUZH/md-reheader"><img src="https://img.shields.io/github/stars/joelbarmettlerUZH/md-reheader?style=social" alt="GitHub stars"></a>
 </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Exact%20Match-56%25-brightgreen?style=for-the-badge" alt="Exact Match 56%">
-  <img src="https://img.shields.io/badge/Per--Heading%20Accuracy-81%25-brightgreen?style=for-the-badge" alt="Per-Heading Accuracy 81%">
-  <img src="https://img.shields.io/badge/Hierarchy-91%25-brightgreen?style=for-the-badge" alt="Hierarchy Preservation 91%">
-  <img src="https://img.shields.io/badge/Params-0.6B-blue?style=for-the-badge" alt="0.6B parameters">
-</p>
-
 </div>
 
 ---
@@ -50,69 +43,9 @@ PDF-to-markdown tools like [MinerU](https://github.com/opendatalab/MinerU), [Doc
 
 **md-reheader** fixes it. A 0.6B-parameter Qwen3 fine-tune reads the document and predicts the correct H1–H6 level for every heading in a single forward pass.
 
-### Before (flat output from a PDF parser)
-
-```markdown
-# API Reference
-
-# Authentication
-
-All API requests require a Bearer token in the Authorization header.
-
-# Endpoints
-
-# Users
-
-# List Users
-
-Returns a paginated list of all users in the organization.
-
-# Create User
-
-Creates a new user account. Requires admin privileges.
-
-# Projects
-
-# List Projects
-
-Returns all projects the authenticated user has access to.
-
-# Error Handling
-
-All errors follow the standard format with a status code and message field.
-```
-
-### After (restored by md-reheader)
-
-```markdown
-# API Reference
-
-## Authentication
-
-All API requests require a Bearer token in the Authorization header.
-
-## Endpoints
-
-### Users
-
-#### List Users
-
-Returns a paginated list of all users in the organization.
-
-#### Create User
-
-Creates a new user account. Requires admin privileges.
-
-### Projects
-
-#### List Projects
-
-Returns all projects the authenticated user has access to.
-
-## Error Handling
-
-All errors follow the standard format with a status code and message field.
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/joelbarmettlerUZH/md-reheader/main/docs/hero.png" alt="Source PDF → md-reheader → hierarchy restored vs. flat PDF-parser output" width="800">
+</p>
 
 ---
 
