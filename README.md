@@ -138,6 +138,31 @@ model, tokenizer = load_model("joelbarmettler/md-reheader", device="cuda")
 model, tokenizer = load_model("joelbarmettler/md-reheader", device="cpu")
 ```
 
+
+### Remote inference (vLLM or any OpenAI-compatible endpoint)
+
+Point the CLI at a running server — no local weights needed:
+
+```bash
+rehead -i flat.md -o fixed.md --endpoint http://localhost:8000/v1
+# with auth:
+rehead -i flat.md -o fixed.md --endpoint https://api.example.com/v1 --api-key sk-xxx
+```
+
+From Python:
+
+```python
+from md_reheader.inference.remote import reheader_document_remote
+
+fixed = reheader_document_remote(
+    open("flat.md").read(),
+    endpoint="http://localhost:8000/v1",
+    model="joelbarmettler/md-reheader",
+)
+```
+
+To self-host with [vLLM](https://github.com/vllm-project/vllm), see the [model card](https://huggingface.co/joelbarmettler/md-reheader#self-host-with-vllm) — the one-time patch fixes transformers 4.x/5.x config compatibility, then `vllm serve` is a one-liner.
+
 ## Speed
 
 Benchmarked on a single NVIDIA RTX 4090 (BF16) and CPU (float32):
