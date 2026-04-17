@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/md-reheader
+    permissions:
+      id-token: write  # required for PyPI Trusted Publisher (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.12'
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true  # no-op if the version on main is already released
+
+  huggingface:
+    name: Sync HF model and dataset cards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install huggingface_hub
+        run: pip install --quiet huggingface_hub
+
+      - name: Upload model and dataset cards
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          sha_short = os.environ['GITHUB_SHA'][:7]
+
+          api.upload_file(
+              path_or_fileobj='docs/model_card.md',
+              path_in_repo='README.md',
+              repo_id='joelbarmettler/md-reheader',
+              repo_type='model',
+              commit_message=f'Sync model card from GitHub main ({sha_short})',
+          )
+          api.upload_file(
+              path_or_fileobj='docs/dataset_card.md',
+              path_in_repo='README.md',
+              repo_id='joelbarmettler/md-reheader-dataset',
+              repo_type='dataset',
+              commit_message=f'Sync dataset card from GitHub main ({sha_short})',
+          )
+          PY
