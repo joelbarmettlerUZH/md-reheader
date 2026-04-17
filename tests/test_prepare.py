@@ -116,7 +116,7 @@ class TestProcessSplit:
         assert "max_depth" in meta
         assert meta["repo"] == "owner/myrepo"
 
-    def test_deterministic_corruption(self):
+    def test_deterministic_processing(self):
         docs = [_make_doc()]
         p1 = process_split(docs, "train", seed=42)
         p2 = process_split(docs, "train", seed=42)

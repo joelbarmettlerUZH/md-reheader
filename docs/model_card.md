@@ -281,6 +281,10 @@ Documents longer than ~8k tokens (after stripping) are truncated from the tail.
 
 ---
 
+## Author
+
+Built by [Joel Barmettler](https://joelbarmettler.xyz/).
+
 ## Citation
 
 ```bibtex

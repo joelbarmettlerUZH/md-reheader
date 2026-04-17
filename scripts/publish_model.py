@@ -81,7 +81,7 @@ def main() -> None:
         "--checkpoint", type=str, default="./checkpoints_v3/checkpoint-3082",
     )
     model_parser.add_argument(
-        "--repo", type=str, default="joelbarmettlerUZH/md-reheader",
+        "--repo", type=str, default="joelbarmettler/md-reheader",
     )
 
     dataset_parser = subparsers.add_parser("dataset")

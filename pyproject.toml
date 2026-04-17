@@ -38,8 +38,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/joelbarmettlerUZH/md-reheader"
+Homepage = "https://joelbarmettler.xyz/"
 Repository = "https://github.com/joelbarmettlerUZH/md-reheader"
+Model = "https://huggingface.co/joelbarmettler/md-reheader"
+Dataset = "https://huggingface.co/datasets/joelbarmettler/md-reheader-dataset"
 
 [build-system]
 requires = ["hatchling"]

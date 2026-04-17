@@ -104,6 +104,10 @@ This dataset is released under **CC-BY-SA 4.0** because it contains derivative c
 - GitHub code files: various permissive licenses (MIT, Apache 2.0, BSD, etc.) via [codeparrot/github-code](https://huggingface.co/datasets/codeparrot/github-code)
 - GoodWiki dataset: [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) by Euirim Choi
 
+## Author
+
+Built by [Joel Barmettler](https://joelbarmettler.xyz/).
+
 ## Citation
 
 ```bibtex
